@@ -1,0 +1,635 @@
+Evergage.init({    // Initializes the Interaction Studio Web SDK
+    cookieDomain: "virtuelabs.com"    // Optional tracking cookie domain configuration (overrides default)
+}).then(() => {
+
+    const sitemapConfig = {    // Sitemap configuration object
+        global: {               // Object used to contain Global site object configuration
+            onActionEvent: (actionEvent) => {
+                const email = getEmail();
+                if (email) {
+                    actionEvent.user = actionEvent.user || {};
+                    actionEvent.user.attributes = actionEvent.user.attributes || {};
+                    actionEvent.user.attributes.emailAddress = email;
+                }
+                return actionEvent;
+            },
+            listeners: [
+                Evergage.listener("submit", "#newsletter-validate-detail", () => {
+                    const email = Evergage.cashDom("#newsletter").val();
+                    if (validateEmail(email)) {
+                        Evergage.sendEvent({
+                            action: "Email Sign Up - Footer",
+                            user: {
+                                anonId:getAnonId(),
+                                attributes: {
+                                    emailAddress: email,
+                                    sfmcContactKey: email
+                                }
+                            }
+                        });
+                    }
+                })
+            ]
+        },            
+
+        pageTypeDefault: {
+            name: "default"
+        },
+
+        pageTypes: [          // Array used to contain the page type object configurations
+            {
+                name: "Homepage",
+                action: "Homepage",
+                isMatch: () => window.location.href == "https://www.virtuelabs.com/en/" || window.location.href == "https://www.virtuelabs.com/",
+                contentZones: [
+                    {name: "Homepage_hero_banner", selector: ".pagebuilder-mobile-only"},
+                    {name: "Homepage_prod_rec", selector: ".hp-carousel"}
+                ]
+            },
+            // PRODUCT DETAIL
+            {
+                name: "Product Detail Page",
+                action: "Product Detail Page",
+                isMatch: () => prodIsMatch.then((res) => true, (res) => false),
+                catalog: {
+                    Product: {
+                        _id: () => getProductsFromDataLayer("id"),
+                        name: () => getProductsFromDataLayer("name")
+                    }
+                },
+                contentZones: [
+                    {name: "PDP_recs", selector: "#is-pdp-prod-rec"},
+                ]
+            },
+
+            {
+                name: "Order Confirmation",
+                action: "Order Confirmation",
+                isMatch: () => /success/.test(window.location.href),
+            },
+
+            // LOGIN
+            {
+                name: "Login Page",
+                action: "Login Page",
+                isMatch: () => /login/.test(window.location.href),
+                listeners: [
+                    Evergage.listener("submit", "#login-form", () => {
+                        const email = Evergage.cashDom("#email").val()
+                        if (email) {
+                            if (validateEmail(email)) {
+                                Evergage.sendEvent({
+                                    action: "User Logged in",
+                                    user: {
+                                        anonId:getAnonId(),
+                                        attributes: {
+                                            emailAddress: email,
+                                            sfmcContactKey: email
+                                        }
+                                    }
+                                })
+                            }
+                        }
+                    })
+                ]
+            },
+            // ACCOUNT CREATION 
+            {
+                name: "Account Creation Page",
+                action: "Account Creation Page",
+                isMatch: () => /create/.test(window.location.href),
+                listeners: [
+                    Evergage.listener("submit", "#form-validate", () => {
+                        const firstName = Evergage.cashDom("#firstname").val();
+                        const lastName = Evergage.cashDom("#lastname").val();
+                        const name = firstName + " " + lastName;
+                        const email = Evergage.cashDom("#email_address").val();
+                        const newsletterSignUp = Evergage.cashDom(".checkbox__field")[0].checked;
+                        if (firstName && lastName && email && newsletterSignUp) {
+                            Evergage.sendEvent({
+                                action: "Account Created",
+                                user: {
+                                    anonId:getAnonId(),
+                                    attributes: {
+                                        emailAddress: email,
+                                        firstName: firstName,
+                                        lastName: lastName,
+                                        newsletterSignUp: newsletterSignUp,
+                                        sfmcContactKey: email
+                                    }
+                                }
+                            })
+                        }
+                    })
+                ]
+            },
+            {
+                name: "Cart",
+                action: "Cart",
+                isMatch: () => /checkout\/cart/.test(window.location.href)
+            },
+            {
+                name: "Curl",
+                action: "Curl",
+                isMatch: () => /care\/curl/.test(window.location.href)
+            },
+            {
+                name: "Hair Care",
+                action: "Hair Care",
+                isMatch: () => /care/.test(window.location.href)
+            },
+            {
+                name: "Refresh",
+                action: "Refresh",
+                isMatch: () => /refresh/.test(window.location.href)
+            },
+            {
+                name: "Treatment",
+                action: "Treatment",
+                isMatch: () => /correct/.test(window.location.href)
+            },
+            {
+                name: "Stylers",
+                action: "Stylers",
+                isMatch: () => /create/.test(window.location.href)
+            },
+            // HAIR DIAGNOSTIC
+            {
+                name: "Hair Diagnostic Quiz",
+                action: "Hair Diagnostic Quiz",
+                isMatch: () => /hair-diagnostic/.test(window.location.href),
+                listeners: [
+                    // Account Creation Listener
+                    Evergage.listener("submit", "#form-validate", () => {
+                        const firstName = Evergage.cashDom("#firstname").val();
+                        const lastName = Evergage.cashDom("#lastname").val();
+                        const email = Evergage.cashDom("#email_address").val();
+                        Evergage.sendEvent({
+                            action: "Hair Diagnostic Quiz | Account Creation",
+                            user: {
+                                anonId:getAnonId(),
+                                attributes: {
+                                    emailAddress: email,
+                                    firstName: firstName,
+                                    lastName: lastName,
+                                    sfmcContactKey: email
+                                }
+                            }
+                        })
+                    }),
+
+                    //Question 2 
+                    Evergage.listener("click", '[data-question-index="2"]', () => {
+                        let realAns2 = "";
+                        if (Evergage.cashDom("#answer_110")[0].checked) {
+                            realAns2 = "Straight";
+                        } else if (Evergage.cashDom("#answer_113")[0].checked) {
+                            realAns2 = "Wavy";
+                        } else if (Evergage.cashDom("#answer_116")[0].checked) {
+                            realAns2 = "Curly";
+                        } else if (Evergage.cashDom("#answer_119")[0].checked) {
+                            realAns2 = "Coils";
+                        }
+                        Evergage.sendEvent({
+                            action: "Quiz Answer",
+                            user: {
+                                attributes: {
+                                    NaturalHairTexture: realAns2
+                                }
+                            }
+                        })
+                    }),
+
+                    // Question 3 listen Evergage.cashDom('[data-question-index="3"]')
+                    Evergage.listener("click", '[data-question-index="3"]', () => {
+                        let ans1 = Evergage.cashDom("#answer_125")[0].checked;
+                        let ans2 = Evergage.cashDom("#answer_128")[0].checked;
+                        let ans3 = Evergage.cashDom("#answer_131")[0].checked;
+                        let realAns3 = "";
+                        if (ans1 == true) {
+                            realAns3 = "Fine";
+                        } else if (ans2 == true) {
+                            realAns3 = "Medium";
+                        } else if (ans3 == true) {
+                            realAns3 = "Thick";
+                        } 
+                        Evergage.sendEvent({
+                            action: "Quiz Answer",
+                            user: {
+                                attributes: {
+                                    HairThickness: realAns3
+                                }
+                            }
+                        })
+                    }),
+
+                    //Question 4 
+                    Evergage.listener("click", '[data-question-index="4"]', () => {
+                        let realAns4 = "";
+                        if (Evergage.cashDom("#answer_134")[0].checked) {
+                            realAns4 += "Damage Repair";
+                        } 
+                        if (Evergage.cashDom("#answer_137")[0].checked) {
+                            if (realAns4.length > 0) {
+                                realAns4 += ", " + "Frizz Reduction"
+                            } else {
+                                realAns4 = "Frizz Reduction"
+                            }
+                        }
+                        if (Evergage.cashDom("#answer_140")[0].checked) {
+                            if (realAns4.length > 0) {
+                                realAns4 += ", " + "More Volume"
+                            } else {
+                                realAns4 = "More Volume"
+                            }
+                        }
+                        Evergage.sendEvent({
+                            action: "Quiz Answer",
+                            user: {
+                                attributes: {
+                                    TopHairGoals: realAns4
+                                }
+                            }
+                        })
+                    }),
+
+                    //Question 5 
+                    Evergage.listener("click", '[data-question-index="5"]', () => {
+                        let realAns5 = "";
+                        if (Evergage.cashDom("#answer_143")[0].checked) {
+                            realAns5 = "Never, I Air Dry";
+                        } else if (Evergage.cashDom("#answer_146")[0].checked) {
+                            realAns5 = "Once A Week";
+                        } else if (Evergage.cashDom("#answer_149")[0].checked) {
+                            realAns5 = "2-3 Times A Week";
+                        } else if (Evergage.cashDom("#answer_152")[0].checked) {
+                            realAns5 = "Everday";
+                        }
+                        Evergage.sendEvent({
+                            action: "Quiz Answer",
+                            user: {
+                                attributes: {
+                                    OftenUseHeatTool: realAns5
+                                }
+                            }
+                        })
+                    }),
+
+                    //Question 6 
+                    Evergage.listener("click", '[data-question-index="6"]', () => {
+                        let realAns6 = "";
+                        if (Evergage.cashDom("#answer_156")[0].checked) {
+                            realAns6 = "Never";
+                        } else if (Evergage.cashDom("#answer_159")[0].checked) {
+                            realAns6 = "1-2 Times A Year";
+                        } else if (Evergage.cashDom("#answer_162")[0].checked) {
+                            realAns6 = "3-4 Times A Year";
+                        } else if (Evergage.cashDom("#answer_165")[0].checked) {
+                            realAns6 = "Monthly (Or More)";
+                        }
+                        Evergage.sendEvent({
+                            action: "Quiz Answer",
+                            user: {
+                                attributes: {
+                                    OftenColorOrHighlight: realAns6
+                                }
+                            }
+                        })
+                    }),
+
+                    //Question 7 
+                    Evergage.listener("click", '[data-question-index="7"]', () => {
+                        let realAns7 = "";
+                        if (Evergage.cashDom("#answer_168")[0].checked) {
+                            realAns7 = "Blonde";
+                        } else if (Evergage.cashDom("#answer_171")[0].checked) {
+                            realAns7 = "Brunette";
+                        } else if (Evergage.cashDom("#answer_174")[0].checked) {
+                            realAns7 = "Red";
+                        } else if (Evergage.cashDom("#answer_177")[0].checked) {
+                            realAns7 = "Black";
+                        } else if (Evergage.cashDom("#answer_180")[0].checked) {
+                            realAns7 = "Silver/Gray";
+                        } else if (Evergage.cashDom("#answer_183")[0].checked) {
+                            realAns7 = "Other";
+                        }
+                        Evergage.sendEvent({
+                            action: "Quiz Answer",
+                            user: {
+                                attributes: {
+                                    CurrentHairColor: realAns7
+                                }
+                            }
+                        })
+                    }),
+
+                    //Question 8 
+                    Evergage.listener("click", '[data-question-index="8"]', () => {
+                        let realAns8 = [];
+                        if (Evergage.cashDom("#answer_189")[0].checked) {
+                            realAns8.push("Hair Smoothing Treatment");
+                        } 
+                        if (Evergage.cashDom("#answer_192")[0].checked) {
+                            realAns8.push("Hair Relaxing Treatment");
+                        }
+                        if (Evergage.cashDom("#answer_195")[0].checked) {
+                            realAns8.push("Perm/Wave Treatment");
+                        }
+                        if (Evergage.cashDom("#answer_198")[0].checked) {
+                            realAns8.push("Extensions")
+                        }
+                        if (Evergage.cashDom("#answer_201")[0].checked) {
+                            realAns8.push("None Of The Above")
+                        }
+                        realAns8 = realAns8.toString();
+                        Evergage.sendEvent({
+                            action: "Quiz Answer",
+                            user: {
+                                attributes: {
+                                    RecievedSalonServicesInLast12Months: realAns8,
+                                    RecievedSalonServicesInLast12MonthsDateSubmission: () => {
+                                        return new Date()
+                                    }
+                                }
+                            }
+                        })
+                    }),
+
+                    //Question 9 
+                    Evergage.listener("click", '[data-question-index="9"]', () => {
+                        let realAns9 = [];
+                        if (Evergage.cashDom("#answer_204")[0].checked) {
+                            realAns9.push("Dryness");
+                        } 
+                        if (Evergage.cashDom("#answer_207")[0].checked) {
+                            realAns9.push("Oiliness");
+                        }
+                        if (Evergage.cashDom("#answer_210")[0].checked) {
+                            realAns9.push("Lack Volume");
+                        }
+                        if (Evergage.cashDom("#answer_213")[0].checked) {
+                            realAns9.push("Lack Shine")
+                        }
+                        if (Evergage.cashDom("#answer_216")[0].checked) {
+                            realAns9.push("Frizz")
+                        }
+                        if (Evergage.cashDom("#answer_219")[0].checked) {
+                            realAns9.push("Hair Loss")
+                        }
+                        if (Evergage.cashDom("#answer_222")[0].checked) {
+                            realAns9.push("Heat Damage")
+                        }
+                        if (Evergage.cashDom("#answer_225")[0].checked) {
+                            realAns9.push("Color Damage")
+                        }
+                        if (Evergage.cashDom("#answer_228")[0].checked) {
+                            realAns9.push("Breakage/Split")
+                        }
+                        if (Evergage.cashDom("#answer_231")[0].checked) {
+                            realAns9.push("Dry, Flaky Or Itchy Scalp")
+                        }
+                        if (Evergage.cashDom("#answer_237")[0].checked) {
+                            realAns9.push("None Of The Above")
+                        }
+                        realAns9 = realAns9.toString();
+                        Evergage.sendEvent({
+                            action: "Quiz Answer",
+                            user: {
+                                attributes: {
+                                    TopThreeHairConcerns: realAns9
+                                }
+                            }
+                        })
+                    }),
+
+                    //Question 10 
+                    Evergage.listener("click", '[data-question-index="10"]', () => {
+                        let realAns10 = [];
+                        if (Evergage.cashDom("#answer_240")[0].checked) {
+                            realAns10.push("Short and Textured");
+                        } 
+                        if (Evergage.cashDom("#answer_243")[0].checked) {
+                            realAns10.push("Straight and Smooth");
+                        }
+                        if (Evergage.cashDom("#answer_246")[0].checked) {
+                            realAns10.push("Voluminous Blowout");
+                        }
+                        if (Evergage.cashDom("#answer_249")[0].checked) {
+                            realAns10.push("Loose Waves")
+                        }
+                        if (Evergage.cashDom("#answer_252")[0].checked) {
+                            realAns10.push("Defined Curls")
+                        }
+                        if (Evergage.cashDom("#answer_255")[0].checked) {
+                            realAns10.push("Natural Coils")
+                        }
+                        if (Evergage.cashDom("#answer_258")[0].checked) {
+                            realAns10.push("Air Dry")
+                        }
+                        realAns10 = realAns10.toString();
+                        Evergage.sendEvent({
+                            action: "Quiz Answer",
+                            user: {
+                                attributes: {
+                                    FavoriteWaysToWearHair: realAns10
+                                }
+                            }
+                        })
+                    }),
+                ]
+            },
+            // CHECKOUT 
+            {
+                name: "Checkout",
+                action: "Checkout",
+                isMatch: () => /checkout/.test(window.location.href),
+                listeners: [
+                    Evergage.listener("click", "#shipping-action-click", () => {
+                        const email = Evergage.cashDom("#customer-email").val();
+                        const firstName = Evergage.cashDom("[name='firstname']").val();
+                        const lastName = Evergage.cashDom("[name='lastname']").val();
+                        const company = Evergage.cashDom("[name='company']").val();
+                        const streetline1 = Evergage.cashDom("[name='street[0]']").val() || "";
+                        const streetline2 = Evergage.cashDom("[name='street[1]']").val() || "";
+                        const streetline3 = Evergage.cashDom("[name='street[2]']").val() || "";
+                        const address = streetline1 + " " + streetline2 + " " + streetline3;
+                        const zipcode = Evergage.cashDom("[name='postcode']").val();
+                        const phoneNum = Evergage.cashDom("[name='telephone']").val();
+                        const city = Evergage.cashDom("[name='city']").val();
+                        const country = Evergage.cashDom("[name='country_id']").val();
+                        Evergage.sendEvent({
+                            action: "Account Registered",
+                            user: {
+                                anonId:getAnonId(),
+                                attributes: {
+                                    emailAddress: email,
+                                    firstName: firstName,
+                                    lastName: lastName,
+                                    company: company,
+                                    address: address,
+                                    zipCode: zipcode,
+                                    phone: phoneNum,
+                                    city: city,
+                                    country: country,
+                                    sfmcContactKey: email
+                                }
+                            }
+                        })
+                    })
+                ]
+            },
+        ]          
+    }
+
+    const checkForOrder = () => {
+        let timerVar = setInterval(() => {
+            if (window.dataLayer.filter(s => s["event"] == "purchase").length > 0) {
+                clearInterval(timerVar);
+                Evergage.sendEvent({
+                    itemAction: "Purchase",
+                    order: {
+                        Product: {
+                            orderId: getOrderId(),
+                            lineItems: buildOrderLineItems()
+                        }
+                    }
+                });
+            }
+        }, 500)
+    }
+    
+    const getOrderId = () => {
+        let orderArr = window.dataLayer.filter(s => s["event"] == "purchase")[0];
+        return orderArr["conversion_id"];
+    }
+
+    const buildOrderLineItems = () => {
+        let orderInfo = dataLayer.filter(s => s["event"] == "purchase")[0];
+        orderInfo = orderInfo["items"]
+        let id; 
+        let price; 
+        let quantity;
+        let lineItemsArr = [];
+        for (var i in orderInfo) {
+            id = orderInfo[i]["id"];
+            price = orderInfo[i]["price"];
+            quantity = orderInfo[i]["quantity"];
+            lineItemsArr.push({
+                _id: id,
+                price: price,
+                quantity: quantity
+            })
+        }
+        return lineItemsArr
+    }
+
+
+    const getProductsFromDataLayer = (targetAttribute) => {
+        const info = dataLayer.filter(s => s["pageType"] == "product")[0];
+        return info["ecommerce"]["detail"]["products"][0][targetAttribute]
+    }
+    
+    const validateEmail = (email) => {
+        const re = /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
+        return re.test(String(email).toLowerCase());
+    }
+
+    const getAnonId = () => {
+        let currentPage = Evergage.getCurrentPage();
+        return currentPage["user"]["anonId"]
+    }
+
+    const getEmail = () => {
+        let email;
+        if (typeof dataLayer != 'undefined') {
+            let emailArr = dataLayer.filter(s => s["loginStatus"] == "yes");
+            if (emailArr.length > 0) {
+                email = emailArr[0]["userEmail"];
+                return email;
+            }
+        }
+        email = "";
+        return email;
+    }
+
+    const prodIsMatch = new Promise ((resolve, reject) => {
+        var startTime, endTime, timeDiff; 
+        if (Evergage.cashDom(".product-main").length > 0) {
+            resolve(true);
+        } else {
+            startTime = new Date(); 
+            let timerVar = setInterval(() => {
+                endTime = new Date();
+                timeDiff = endTime - startTime;
+                timeDiff = timeDiff/1000;
+                if (timeDiff > 0.5) {
+                    clearInterval(timerVar);
+                    reject(false);
+                } else if (Evergage.cashDom(".product-main").length > 0) {
+                    resolve(true);
+                } 
+            }, 200);
+        }
+    });
+
+    const checkAddToCart = () => {
+        let cartArr;
+        setInterval(() => {
+            cartArr = window.dataLayer.filter(s => s["event"] == "addToCart");
+            if (cartArr.length > 0) {
+                cartArr = cartArr.pop()
+                if (typeof cartArr["visited"] == "undefined") {
+                    cartArr["visited"] = true;
+                    let id = getCartItems("id");
+                    let price = getCartItems("price"); 
+                    let quantity = getCartItems("quantity")
+                    Evergage.sendEvent({
+                        itemAction: Evergage.ItemAction.AddToCart,
+                        action: "Added to cart",
+                        cart: {
+                            singleLine: {
+                                Product: {
+                                    _id: id,
+                                    price: price, 
+                                    quantity: quantity
+                                }
+                            }
+                        }
+                    })
+                }
+            }
+        })
+    }
+
+    const getCartItems = (targetAttribute) => {
+        let arr = window.dataLayer.filter(s => s["event"] == "addToCart").pop();
+        return arr["ecommerce"]["add"]["products"][0][targetAttribute];
+    } 
+
+    const abandonedBrowseCart = () => {
+        Evergage.DisplayUtils.pageExit(1000).then((event) => {
+            let itemsInCart = Evergage.cashDom(".counter-number");
+            if (itemsInCart.length > 0) {
+                itemsInCart = parseInt(itemsInCart[0].innerText)
+                if (itemsInCart > 0) {
+                    Evergage.sendEvent({
+                        action: "Abandoned Cart"
+                    })
+                } else {
+                    Evergage.sendEvent({
+                        action: "Abandoned Browse"
+                    })
+                }
+            } else {
+                Evergage.sendEvent({
+                    action: "Abandoned Browse"
+                })
+            }
+        })
+    }
+    
+    checkAddToCart();
+    checkForOrder();
+    abandonedBrowseCart();
+    Evergage.initSitemap(sitemapConfig);    // Initializes the Sitemap
+});
