@@ -1,0 +1,357 @@
+Evergage.init({
+    cookieDomain: "winstonflowers.com",
+ }).then(() => {
+ 
+  const sitemapConfig = {    // Sitemap configuration object
+    
+    // Object used to contain Global site object configuration
+    global: {
+            onActionEvent: (actionEvent) => {
+                const email = window.loginEmailId;
+                if (validateEmail(email)) {
+                    actionEvent.user = actionEvent.user || {};
+                    actionEvent.user.attributes = actionEvent.user.attributes || {};
+                    actionEvent.user.attributes.emailAddress = email;
+                }
+                return actionEvent;
+        },
+
+            listeners: [
+                
+                    
+                
+            ]
+        },            
+        pageTypeDefault: {
+            name: "default",
+        },
+        
+    pageTypes: [
+            { 
+                name: "Homepage",
+                action: "Homepage",
+
+                isMatch: () => "https://www.winstonflowers.com/" == window.location.href,
+
+                contentZones: [
+
+                {name:"homepage_product_recommendation",  selector:".fullWidthImgAndTextContainer"}
+                ],
+                
+            },
+            {
+                name: "Login Page",
+                action: "Login Page",
+                
+                isMatch: () => /\/login/.test(window.location.href),
+                listeners: [
+                    Evergage.listener("submit", "#loginfileForm", () => {
+                    
+                        const email = Evergage.cashDom("#logInEmailfile").val();
+                        Evergage.sendEvent({
+                            action: "Email Capture -Login Page",
+                            user: {
+                                attributes: {
+                                    emailAddress: email,
+                                }
+                            }
+                        });
+                    })
+                ]
+            },
+            {
+                name: "Register Page",
+                action: "Register Page",
+
+                isMatch: () => /\/account\/signup/.test(window.location.href) ,
+                listeners: [
+                    Evergage.listener("submit", "#newAccountForm", () => {
+                        const emailAddress = Evergage.cashDom('#email').val();
+                        const firstName = Evergage.cashDom('#first_name').val();
+                        const lastName = Evergage.cashDom('#last_name').val();
+                        const phoneNumber =Evergage.cashDom('#phone_number').val();
+                        Evergage.sendEvent({
+                            action: "User Info Capture - Register Page ", 
+                            user: {
+                                anonId: getAnonId(),
+                                attributes: {
+                                    firstName:  firstName,
+                                    lastName:  lastName,
+                                    emailAddress: emailAddress,
+                                    phoneNumber: phoneNumber
+                                }
+                            }
+                        });
+                    }),
+
+                ]
+                
+            },
+            {
+                name: "Checkout Page",
+                action: "Checkout Page",
+                
+                isMatch: () => /\/checkout/.test(window.location.href),
+
+                listeners: [ 
+                    
+                    Evergage.listener("submit", "#billingReviewForm", () => {
+                        const firstname = Evergage.cashDom('#first_name').val();
+                        const lastname = Evergage.cashDom('#last_name').val();
+                        const address1 = Evergage.cashDom('#address1').val() || "";
+                        const address2 = Evergage.cashDom('#address2').val() || "";
+                        const city = Evergage.cashDom('#city').val();
+                        const state = Evergage.cashDom('#state').val();
+                        const zipcode = Evergage.cashDom('#zip').val();
+                        const email = Evergage.cashDom('#email').val();
+                        const country = Evergage.cashDom('#country').val();
+                        const phoneNumber =Evergage.cashDom('#phone_number').val();
+                        Evergage.sendEvent({
+                            action: "Checkout - Billing Information Capture", 
+                            user: {
+                                anonId: getAnonId(),
+                                attributes: {
+                                    firstName:  firstname,
+                                    lastName:  lastname,
+                                    address:  address1 + " " + address2,
+                                    emailAddress: email,
+                                    city:  city,
+                                    state:  state,
+                                    zip:  zipcode,
+                                    country: country,
+                                    phoneNumber: phoneNumber
+                                }
+                            }
+                        });
+                    }),
+
+                ]
+                
+            },
+             {
+                name: "Order Confirmation",
+                action: "Purchase Made", 
+                isMatch: () => /\/orderconfirmation/.test(window.location.href),
+                //Order Confirmation Default Code
+                itemAction: Evergage.ItemAction.Purchase,
+                order: {
+                    Product: {
+                        orderId: () => window.t_order_id,
+
+                        lineItems: {
+
+                            _id: () => window.t_product_id,
+
+                            price: () => window.t_product_unit_price,
+
+                            quantity: () => window.t_prodquantity,
+
+                        }
+                    }
+                }
+            },
+            {
+                name: "Collection Page",
+                action: "Collection Page",
+                isMatch: () => /[a-zA-Z]\/cat/.test(window.location.href),
+                
+                contentZones: [
+                     {name:"collection_product_recommendation", selector: ".winston-salesforce-products"}
+                ],
+
+            },
+            {
+            name: "Product Detail Page",
+            action: "Product Detail Page",
+            isMatch: () => prodIsMatch.then(() => true, () => false),
+            
+                catalog: {
+                    Product: {
+                        _id: () => {
+                                return Evergage.DisplayUtils.pageElementLoaded(".winston-pdp-form-container, .m-pdp-form-elements", "html").then((ele) => {
+                                    return Evergage.resolvers.fromJsonLd("sku");
+        
+                                });
+                        },
+                        name: Evergage.resolvers.fromJsonLd("name"),
+                        description: Evergage.cashDom('.m-pdp-tabs-marketing-description').text().trim(),
+                        url: Evergage.resolvers.fromHref(),
+                        imageUrl: ()=>{
+
+                            const imagefull =  Evergage.resolvers.fromMeta('og:image')();
+                            var afterWithout = imagefull.substr(0, imagefull.lastIndexOf("?"));
+                            return afterWithout;
+
+                        },
+                        price: Evergage.resolvers.fromSelector("#standardPrice"),
+                        categories: ()=> create_array(window.t_category),
+                        dimensions: {
+
+                            Color: ()=> create_array(window.t_flowercolor),
+                            AvailableLocations:  ()=> create_array(window.t_availablelocations),
+                            Subcategory: ()=> create_array(window.t_subcategory),
+                            PriceRange:()=> priceRange() ,
+                            Availability: ()=> create_array(window.t_availability),
+                            
+
+                        }
+
+                    },
+
+                        
+                },
+                listeners: [
+                    Evergage.listener("click", "#alternatePdpAddToCartBtn", () => {
+                        const lineItem = Evergage.util.buildLineItemFromPageState("#qty");
+
+                        Evergage.sendEvent({
+                            action: "Added to Cart",
+                            itemAction: Evergage.ItemAction.AddToCart,
+                            cart: {
+                                singleLine: {
+                                    Product: lineItem
+                                }
+                            }
+                        });
+                    }),
+
+                    Evergage.listener("click", "#saveForLater", ()=> Evergage.sendEvent({
+                    action: "Item Saved For Later"
+                
+                    })),
+                ],
+                
+            },
+            {
+            name: "account",
+            action: "Account Info",
+            isMatch: () => /account\/info/.test(window.location.pathname),
+            
+                listeners: [ 
+                    
+                    Evergage.listener("submit", "#accountInfoForm", () => {
+                        const firstname = Evergage.cashDom('#first_name').val();
+                        const lastname = Evergage.cashDom('#last_name').val();
+                        const address1 = Evergage.cashDom('#address1').val() || "";
+                        const address2 = Evergage.cashDom('#address2').val() || "";
+                        const city = Evergage.cashDom('#city').val();
+                        const state = Evergage.cashDom('#state').val();
+                        const zipcode = Evergage.cashDom('#zip').val();
+                        const email = Evergage.cashDom('#email').val();
+                        const country = Evergage.cashDom('#country').val();
+                        Evergage.sendEvent({
+                            action: "Updated Account Info", 
+                            user: {
+                                anonId: getAnonId(),
+                                attributes: {
+                                    firstName:  firstname,
+                                    lastName:  lastname,
+                                    address:  address1 + " " + address2,
+                                    emailAddress: email,
+                                    city:  city,
+                                    state:  state,
+                                    zip:  zipcode,
+                                    country: country
+                                }
+                            }
+                        });
+                    }),
+
+                ]
+            },
+            
+            
+    ]
+  
+      
+  };
+ 
+ //Abandoned Cart
+const abandonedCart = () => {
+    
+    Evergage.DisplayUtils.pageExit(2000).then(function(event) {
+        
+        var cart_items = parseInt(Evergage.cashDom('span[class="cart-number"]').text().trim());
+
+        if (cart_items > 0  ) {
+           
+           return  Evergage.sendEvent({
+               
+               action: "Abandoned Cart"
+                
+            });
+        } else {
+
+            return  Evergage.sendEvent({
+                
+                action: "Abandoned Browse"
+                
+            });
+        }
+    });
+};
+abandonedCart();
+
+const create_array = (attribute) => {
+        const remove_beginning = attribute.replace("[", "");
+        const remove_end = remove_beginning.replace("]", "");
+        const created_array = remove_end.split(", ");
+
+        return created_array;
+};
+const validateEmail = (email) => {
+        const re = /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
+        return re.test(String(email).toLowerCase());
+    };
+
+const priceRange = () => {
+    
+    const priceInt = parseFloat(window.t_product_unit_price);
+
+    var pricenew = [''];
+
+    if(priceInt < 150) { 
+         pricenew = ['Under $150'];
+    }
+    if((priceInt >=150) && (priceInt< 250)){
+
+         pricenew = ['$150-$250'];
+    }
+    if((priceInt >=250) && (priceInt< 350)){
+
+         pricenew = ['$250-$350'];
+    }
+    if(priceInt > 350) { 
+         pricenew = ['$350 & Above'];
+    }
+        return pricenew;
+};
+
+const getAnonId = () => {
+    let currentPage = Evergage.getCurrentPage();
+    return currentPage["user"]["anonId"];
+};
+const prodIsMatch = new Promise((resolve, reject) => {
+    let name; 
+    let tryNum = 0;
+    name = document.querySelector("body > script:nth-child(24)").innerText = t_availability.length;
+    if (name.length > 0) {
+        resolve(true);
+    } else {
+    	tryNum++;
+        setInterval(() => {
+            if (name > 0) {
+                resolve(true);
+            } else {
+            	tryNum ++;
+            	if (tryNum > 5) {
+            		reject(false);
+            	}
+            }
+        });
+    }
+});
+
+ 
+Evergage.initSitemap(sitemapConfig);    // Initializes the Sitemap
+});
