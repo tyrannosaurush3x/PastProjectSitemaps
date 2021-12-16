@@ -1,0 +1,1134 @@
+function handleAnonId() {
+    var mbcc = ajq.cookie("mbcc");
+    if (!mbcc) {
+        return;
+    }
+    var emailAnon = Evergage.util.getParameterByName("evg_anon_id");
+    if (emailAnon && emailAnon != mbcc) {
+        Evergage.setCustomField(".prevAnonId", mbcc, Evergage.Scope.Request);
+        mbcc = emailAnon;
+        ajq.cookie("mbcc", mbcc);
+    }
+    Evergage.setAnonymousId(mbcc);
+}
+handleAnonId();
+
+function EvergageCatMap() {
+
+    var that = this;
+    var DO_NOT_TRUNCATE = {
+        _id: true,
+        type: true,
+        tagType: true,
+        price: true,
+        inventoryCount: true,
+        currency: true
+    };
+
+    var DataType = {
+        Product: "product",
+        Blog: "blog",
+        Article: "article",
+        Category: "category",
+        Order: "order",
+        Tag: "tag"
+    };
+
+    var ItemAction = {
+        ViewItem: "viewItem",
+        ViewCategory: "viewCategory",
+        Purchase: "purchase"
+    };
+
+    this.settings = {
+        pageLoadWhenTrue: function() { return true; },
+        pageLoadWhenTrueTimeout: 500,
+        canonicalizeIds: true,
+        truncateTranslated: true,
+        setDefaultListPrice: true,
+        runOnTranslatedPage: false
+    };
+
+    this.configs = [];
+
+    var commonConfigHandlers = {
+        openGraph: function (key) { return Evergage.util.getOpenGraphContent(key); },
+        meta:      function (key) { return Evergage.util.getMetaContent(key); },
+        itemProp:  function (key) { return Evergage.util.getItemProp(key); },
+        canonical: function ()    { return Evergage.util.removeQueryString(Evergage.util.getThisPageCanonicalUrl()); },
+        href:      function ()    { return Evergage.util.removeQueryString(window.location.href); },
+        lastPathComponentWithoutExtension: function() { return Evergage.util.getLastPathComponentWithoutExtension(window.location.href); },
+        articleContent: function(key) { return Evergage.CatMap.getArticleContent(key); }
+    };
+
+    var itemConfigHandlers = {
+        product: buildProduct,
+        article: buildItem,
+        blog: buildItem,
+        category: buildCategory,
+        order: buildOrder,
+        tag: buildItem
+    };
+
+    function pushPage(pageConfig) {
+        that.configs.push(pageConfig);
+    }
+
+    function setConfigs(configs) {
+        that.configs = configs;
+    }
+
+    function updateSettings(settings) {
+        ajq.extend(that.settings, settings);
+    }
+
+    function getFirstText(selector) {
+        return ajq(selector).first().text();
+    }
+
+    function getUtagFirstForField(fieldName) {
+        if (window.utag_data && window.utag_data[fieldName] &&
+            window.utag_data[fieldName].length >= 0) {
+                if (typeof window.utag_data[fieldName] === "object") {
+                    return window.utag_data[fieldName][0];
+                } else {
+                    return window.utag_data[fieldName];
+                }
+            }
+    }
+
+    function getArticleContent(metaTag) {
+        var tag = ajq("meta[property='article:" + metaTag + "']:first");
+
+        if (tag.length > 0) {
+            return ajq.trim(tag.attr("content"));
+        } else {
+            return null;
+        }
+    }
+
+    function runAsFunction(script) {
+        try {
+            var func = new Function("return " + script + ";");
+            return func();
+        } catch (e) {}
+    }
+
+    function isPageMatch(pageConfig) {
+        if (typeof pageConfig.isMatch == "function") {
+            return pageConfig.isMatch();
+        } else if (typeof pageConfig.isMatch == "object" && typeof pageConfig.isMatch.test == "string") {
+            var matchRegex = new RegExp(pageConfig.isMatch.test);
+            return matchRegex.test(window.location.href);
+        } else if (typeof pageConfig.isMatch == "string") {
+            return ajq(pageConfig.isMatch).length > 0;
+        }
+    }
+
+    // Item specific functions
+
+    function buildItem(itemConfig, itemType) {
+        var item = {
+            type: itemType[0]
+        };
+        ajq.each(itemConfig, function(key, config) {
+            var value = getValue(key, config);
+            if (value || (value === 0 && key === "inventoryCount")) item[key] = value;
+        });
+        return item;
+    }
+
+    function buildProduct(itemConfig, itemType) {
+        var item = buildItem(itemConfig, itemType);
+        if (that.settings.setDefaultListPrice === true) {
+            if (item.price && !item.listPrice) {
+                item.listPrice = item.price;
+            }
+        }
+        return item;
+    }
+
+    function buildCategory(categoryConfig) {
+        var category = {
+            type: Evergage.ItemType.Category
+        };
+        ajq.each(categoryConfig, function(key, config) {
+            if (key == "_id") {
+                var categoryId = buildCategoryId(config);
+                categoryId = cleanValue("_id", categoryId);
+                if (categoryId) {
+                    category._id = categoryId;
+                }
+            } else {
+                var value = getValue(key, config);
+                if (value) {
+                    category[key] = value;
+                }
+            }
+        });
+        return category;
+    }
+
+    function buildTags(tagsConfig) {
+        var tags;
+        if (typeof tagsConfig == "object") {
+            tags = [];
+            ajq.each(tagsConfig, function(key, config) {
+                var value = getValue("_id", config);
+                value = cleanMultiItemValue(value, Evergage.ItemType.Tag, key);
+                if (value && value.length) {
+                    ajq.merge(tags, value);
+                }
+            });
+        } else if (typeof tagsConfig == "function") {
+            tags = tagsConfig();
+            if (tags) {
+                tags = cleanMultiItemValue(tags, Evergage.ItemType.Tag);
+            }
+        }
+        if (tags && tags.length) return tags;
+    }
+
+    // Order specific functions
+
+    function buildOrder(orderConfig) {
+        if (typeof orderConfig == "function") {
+            return orderConfig();
+        }
+        var order = {};
+        if (!orderConfig.orderId) {
+            // order id must be configured
+            return;
+        }
+        if (orderConfig.orderId != "none") {
+            var orderId = getValue("orderId", orderConfig.orderId);
+            if (!orderId) return;
+            order.orderId = orderId;
+        }
+
+        if (orderConfig.totalValue) {
+            var totalValue = getValue("totalValue", orderConfig.totalValue);
+            if (totalValue) {
+                order.totalValue = totalValue;
+            }
+        }
+        if (orderConfig.currency) {
+            var totalValueCurrency = getValue("currency", orderConfig.currency);
+            // if currency is configured, assume intended value was different than
+            // dataset's default and therefore this order is invalid
+            if (totalValueCurrency) {
+                order.totalValueCurrency = totalValueCurrency;
+            } else {
+                return;
+            }
+        }
+        if (typeof orderConfig.lineItems == "function") {
+            order.lineItems = orderConfig.lineItems();
+        } else {
+            order.lineItems = buildOrderLineItems(orderConfig, order.totalValueCurrency);
+        }
+        if (!order.lineItems || order.lineItems.length === 0) {
+            return;
+        }
+        return order;
+    }
+
+    function buildOrderLineItems(orderConfig, currency) {
+        var ids = getOrderMultiValues("_id", orderConfig.ids);
+        var skus = getOrderMultiValues("sku", orderConfig.skus);
+        var prices = getOrderMultiValues("price", orderConfig.prices);
+        var quantities = getOrderMultiValues("quantity", orderConfig.quantities);
+        var lineItems;
+        if (ids && ids.length) {
+            lineItems = buildLineItemArrayWithLength(ids.length);
+        } else if (skus && skus.length) {
+            lineItems = buildLineItemArrayWithLength(skus.length);
+        }
+        if (!lineItems) return;
+        var expectedLength = lineItems.length;
+        if (!isEmptyOrExpectedLength(ids, expectedLength)) return;
+        if (!isEmptyOrExpectedLength(skus, expectedLength)) return;
+        if (!isEmptyOrExpectedLength(prices, expectedLength)) return;
+        if (!isEmptyOrExpectedLength(quantities, expectedLength)) return;
+
+        lineItems = ajq.map(lineItems, function(lineItem, i) {
+            if (currency) lineItem.item.currency = currency;
+            if (ids && ids[i]) lineItem.item._id = ids[i];
+            if (prices && prices[i]) lineItem.item.price = prices[i];
+            if (skus && skus[i]) lineItem.sku = skus[i];
+            if (quantities && quantities[i]) lineItem.quantity = quantities[i];
+            if ((lineItem.item._id || lineItem.sku) && lineItem.quantity) {
+                return lineItem;
+            }
+        });
+        return lineItems;
+    }
+
+    function getOrderMultiValues(key, config) {
+        if (config) {
+            if (typeof config != "function")  {
+                config = getConfigAsMultiple(config);
+            }
+            return getValue(key, config);
+        }
+    }
+
+    function isEmptyOrExpectedLength(array, length) {
+        return !array || (array.length === 0) || (array.length == length);
+    }
+
+    function buildLineItemArrayWithLength(length) {
+        var lineItems = [];
+        for (var i = 0; i < length; i++) {
+            lineItems.push({
+                item: {
+                    type: Evergage.ItemType.Product
+                },
+                quantity: 1
+            });
+        }
+        return lineItems;
+    }
+
+    function getConfigAsMultiple(config) {
+        if (typeof config == "string") {
+            return {
+                selector: config,
+                multiple: true
+            };
+        } else {
+            config.multiple = true;
+            return config;
+        }
+    }
+
+    // Category specific functions
+
+    function buildCategoryId(config) {
+        if (ajq.isArray(config)) {
+            for (var i = 0; i < config.length; i++) {
+                var individualConfig = config[i];
+                var returnValue = buildCategoryId(individualConfig);
+                if (returnValue != null && returnValue !== "") {
+                    return returnValue;
+                }
+            }
+        }
+        var id, elements;
+        var idParts = [];
+        if (typeof config == "string" && commonConfigHandlers.hasOwnProperty(config)) {
+            return commonConfigHandlers[config]("_id");
+        } else if (typeof config == "string") {
+            elements = ajq(config);
+            ajq.each(elements, function(index, elem) {
+                var idPart = ajq.trim(ajq(elem).text());
+                if (idPart) idParts.push(idPart);
+            });
+            id = idParts.join("|");
+        } else if (typeof config == "object") {
+            if (config.selector) {
+                elements = ajq(config.selector);
+                if (config.startFrom) {
+                    elements = elements.slice(config.startFrom);
+                }
+                if (config.ignoreLast) {
+                    elements = elements.slice(0, -1);
+                }
+                if (config.attribute) {
+                    ajq.each(elements, function(index, elem) {
+                        var idPart = ajq.trim(ajq(elem).attr(config.attribute));
+                        if (idPart) idParts.push(idPart);
+                    });
+                } else if (config.lastCrumbFullPath) {
+                    var href = ajq(elements).last().attr("href");
+                    var path = Evergage.util.getPathname(href);
+                    if (path) {
+                        id = path.replace(/^\//,"").replace(/\/ajq/,"").replace(/\//g, "|");
+                        if (id) idParts.push(id);
+                    }
+                } else if (config.crumbsLastPathComp) {
+                    ajq.each(elements, function(index, elem) {
+                        var href = ajq(elem).attr("href");
+                        var lastComponent = Evergage.util.getLastPathComponentWithoutExtension(href);
+                        if (lastComponent) idParts.push(lastComponent);
+                    });
+                } else {
+                    ajq.each(elements, function(index, elem) {
+                        var idPart = ajq.trim(ajq(elem).text());
+                        if (idPart) idParts.push(idPart);
+                    });
+                }
+                if (config.multiple) {
+                    id = idParts;
+                } else {
+                    id = idParts.join("|");
+                }
+            }
+            else {
+                id = getValueFromObjectConfig("_id", config);
+            }
+            if (config.transform) {
+                id = config.transform(id);
+            }
+        } else if (typeof config == "function") {
+            id = config();
+        }
+        return id;
+    }
+
+    // Config value retrieval functions
+
+    function getValue(key, config) {
+        if (ajq.isArray(config)) {
+            for (var i = 0; i < config.length; i++) {
+                var individualConfig = config[i];
+                var returnValue = getValue(key, individualConfig);
+                if (returnValue != null && returnValue !== "") {
+                    return returnValue;
+                }
+            }
+        }
+        var value;
+        if (key == "categories" && (typeof config == "string" ||
+            (typeof config == "object" && config.selector))) {
+                value = buildCategoryId(config);
+        } else if (key == "tags") {
+            return buildTags(config);
+        } else if (key == "custom" && typeof config == "object") {
+            value = getValueFromCustomConfig(key, config);
+        } else if (typeof config == "string") {
+            value = getValueFromStringConfig(key, config);
+        } else if (typeof config == "object") {
+            value = getValueFromObjectConfig(key, config);
+            if (config.transform) value = config.transform(value);
+        } else if (typeof config == "function") {
+            value = config();
+        }
+        if (value || (key === "inventoryCount" && value === 0)) return cleanValue(key, value);
+    }
+
+    function getValueFromCustomConfig(key, config) {
+        var customTags = {};
+        ajq.each(config, function(customKey, customConfig) {
+            var customAttribute = getValue(customKey, customConfig);
+            if (customAttribute) {
+                customTags[customKey] = customAttribute;
+            }
+        });
+        return customTags;
+    }
+
+    function getValueFromStringConfig(key, config) {
+        if (commonConfigHandlers.hasOwnProperty(config)) {
+            return commonConfigHandlers[config](key);
+        }
+        return getFirstText(config);
+    }
+
+    function getValueFromObjectConfig(key, config) {
+        for (var configType in commonConfigHandlers) {
+            if (config.hasOwnProperty(configType)) {
+                return commonConfigHandlers[configType](config[configType]);
+            }
+        }
+        if (config.selector) {
+            if (config.multiple) {
+                return getValuesForSelectorWithMultiple(config);
+            } else if (config.attribute) {
+                return ajq(config.selector).attr(config.attribute);
+            } else {
+                return getFirstText(config.selector);
+            }
+        } else if (config.utag) {
+            return getUtagFirstForField(config.utag);
+        } else if (config.eval) {
+            return runAsFunction(config.eval);
+        } else if (config.static) {
+            return config.static;
+        } else if (config.object) {
+            return getValueFromWindow(config.object);
+        }
+    }
+
+    function getValuesForSelectorWithMultiple(config) {
+        var value = [];
+        var elems = ajq(config.selector);
+        if (config.attribute) {
+            ajq.each(elems, function(index, elem) {
+                value.push(ajq(elem).attr(config.attribute));
+            });
+        } else {
+            ajq.each(elems, function(index, elem) {
+                value.push(ajq(elem).text());
+            });
+        }
+        return value;
+    }
+
+    function getValueFromWindow(obj) {
+        var elems = obj.split(".");
+        var cur = window;
+        var match;
+        for (var i = 0; i < elems.length; i++) {
+            match = /(\w+)\[([0-9]+)\]/.exec(elems[i]);
+            if (cur[elems[i]]) {
+                cur = cur[elems[i]];
+            } else if (match) {
+                if (cur[match[1]]) {
+                    cur = cur[match[1]][parseInt(match[2])];
+                }
+            } else {
+                return null;
+            }
+        }
+        return cur;
+    }
+
+    function handleAddToCartConfig(result, config, quantity, skuConfig) {
+        if (typeof config == "string" || (typeof config == "object" && config.selector && config.validate &&
+            typeof config.validate == "function")) {
+
+            var selector = typeof config == "string" ? config : config.selector;
+            Evergage.safeClick(selector, function() {
+                if (!config.validate || config.validate()) {
+                    var lineItem = {
+                        item: result.data,
+                        quantity: getQuantity(quantity)
+                    };
+                    if (skuConfig) {
+                        var sku = getValue("sku", skuConfig);
+                        if (sku) lineItem.sku = {id: sku};
+                    }
+                    if (lineItem.item._id && lineItem.quantity) {
+                        Evergage.addToCart(lineItem);
+                    }
+                }
+            });
+        } else if (typeof config == "function") {
+            return config(result.data);
+        }
+    }
+
+    function isProductCategoryMatch(idFromProduct, parsedProduct) {
+        var referrer = Evergage.CatMap.spaRefferer || document.referrer;
+        delete Evergage.CatMap.spaRefferer;
+        var referrerMatches = referrer.indexOf(parsedProduct.ref) > -1;
+        var pageMatches = window.location.href.indexOf(parsedProduct.url) > -1;
+        var idMatches = idFromProduct && idFromProduct === parsedProduct._id;
+        return referrerMatches && (pageMatches || idMatches);
+    }
+
+    function handleProductCategoryClick(anchor, config, currentPath) {
+        var clickedProduct = {
+            url: anchor.attr("href"),
+            ref: currentPath
+        };
+        var container = anchor.closest(ajq(config.itemSelector || config.selector));
+        if (config.selectorTransform) {
+            clickedProduct._id = config.selectorTransform(container);
+        } else if (config.childSelector && config.attribute) {
+            clickedProduct._id = container.find(config.childSelector).attr(config.attribute);
+        } else if (config.attribute) {
+            clickedProduct._id = container.attr(config.attribute);
+        }
+
+        var item = Evergage.util.getCurrentPageItem();
+        if (item && item.type === Evergage.ItemType.Category) {
+            clickedProduct.category = item._id;
+        }
+
+        if (clickedProduct.url && clickedProduct.ref) {
+            ajq.jStorage.set("evergage|evgProduct", clickedProduct, {TTL: 30000});
+            Evergage.CatMap.spaRefferer = currentPath;
+        }
+    }
+
+    function handleProductCategoryConfig(data, config) {
+
+        var itemType = data.type;
+        if (itemType === Evergage.ItemType.Category) {
+            var currentPath = window.location.pathname;
+            Evergage.util.runWhenReady(function() {
+                return ajq(config.selector).length > 0;
+            }, function() {
+                Evergage.safeClick(config.selector, function(e) {
+                    var anchor = ajq(e.target).closest("a");
+                    if (!anchor.length) {
+                        return;
+                    }
+                    if (config.itemSelector &&
+                        !anchor.closest(config.itemSelector).length) {
+                            return;
+                    }
+                    handleProductCategoryClick(anchor, config, currentPath);
+                });
+            }, 500, 20);
+        } else if (itemType === Evergage.ItemType.Product) {
+            var clickedProduct = ajq.jStorage.get("evergage|evgProduct");
+            ajq.jStorage.deleteKey("evergage|evgProduct");
+            if (clickedProduct && clickedProduct.category) {
+                var idFromProduct = data._id;
+                if (isProductCategoryMatch(idFromProduct, clickedProduct)) {
+                    data.categories = [{
+                        type: Evergage.ItemType.Category,
+                        _id: clickedProduct.category
+                    }];
+                    return;
+                }
+            }
+        } else {
+            ajq.jStorage.deleteKey("evergage|evgProduct");
+        }
+    }
+
+    function getQuantity(quantityConfig) {
+        if (ajq.isArray(quantityConfig)) {
+            for (var i = 0; i < quantityConfig.length; i++) {
+                var individualConfig = quantityConfig[i];
+                var returnValue = getQuantity(individualConfig);
+                if (returnValue != null && returnValue !== "") {
+                    return returnValue;
+                }
+            }
+        }
+        if (typeof quantityConfig == "function") {
+            return quantityConfig();
+        } else if (typeof quantityConfig == "string") {
+            var elem = ajq(quantityConfig);
+            if (elem.is("input, select")) {
+                return +elem.val();
+            } else {
+                return getValue("quantity", quantityConfig);
+            }
+        } else if (typeof quantityConfig == "object") {
+            return getValue("quantity", quantityConfig);
+        }
+    }
+
+    // Cleaning functions
+
+    function cleanValue(key, value) {
+
+        if (ajq.isArray(value)) {
+            value = ajq.map(value, function(val) {
+                return cleanSingleValue(key, val);
+            });
+        } else {
+            value = cleanSingleValue(key, value);
+        }
+
+        if (key == "categories") value = cleanMultiItemValue(value, Evergage.ItemType.Category);
+
+        return value;
+    }
+
+    function cleanSingleValue(key, value) {
+        if ((key == "price" || key == "listPrice" || key == "totalValue") &&
+            typeof value == "string") {
+                value = Evergage.util.getCurrencyValue(value);
+        }
+        if (key == "url" || key == "imageUrl") value = Evergage.util.qualifyUrl(value);
+
+        if ((key == "_id" || key == "sku" || key == "orderId") &&
+            typeof value == "number") {
+                value = value.toString();
+        }
+
+        if (that.settings.canonicalizeIds && typeof value == "string" &&
+            (key == "_id" || key == "sku" || key == "orderId" || key == "alternateId")) {
+                value = value.toUpperCase();
+        }
+
+        if (typeof value == "string") {
+            if (value.indexOf("&") >= 0) {
+                var textarea = document.createElement("textarea");
+                textarea.innerHTML = value;
+                value = textarea.value;
+            }
+            value = ajq.trim(value);
+        }
+
+        if (key == "description" && typeof value == "string" && value.length > 200) {
+            value = value.substr(0, 197) + "...";
+        }
+
+        if ((key == "quantity" || key === "inventoryCount") && typeof value == "string") value = +value;
+
+        return value;
+    }
+
+    function cleanMultiItemValue(value, type, tagType) {
+        var items = [];
+        if (typeof value == "string" && value) {
+            var item = {
+                type: type,
+                _id: cleanSingleValue("_id", value)
+            };
+            if (tagType) item.tagType = tagType;
+            if (item._id) items.push(item);
+        } else if (ajq.isArray(value) && value.length > 0) {
+            ajq.each(value, function(index, subval) {
+                if (typeof subval == "string") {
+                    var item = {
+                        type: type,
+                        _id: cleanSingleValue("_id", subval)
+                    };
+                    if (tagType) item.tagType = tagType;
+                    if (item._id) items.push(item);
+                } else if (typeof subval == "object" &&
+                    subval.type == type &&
+                    subval._id) {
+                        subval._id = cleanSingleValue("_id", subval._id);
+                        if (subval._id) items.push(subval);
+                }
+            });
+        }
+        return items.length ? items : null;
+    }
+
+    // Initialization functions
+
+    function build(configs) {
+        var result = {};
+        if (!configs) {
+            configs = this.configs;
+        }
+        ajq.each(configs, function(index, pageConfig) {
+            if (result.error) return;
+            if (result.action) {
+                if (isPageMatch(pageConfig)) {
+                    result.error = "Invalid CatMap, multiple page matches";
+                    result.errorConfig = pageConfig;
+                }
+                return;
+            }
+            if (isPageMatch(pageConfig)) {
+                if (pageConfig.product) {
+                    buildForPage(result, pageConfig, DataType.Product, ItemAction.ViewItem);
+                } else if (pageConfig.article) {
+                    buildForPage(result, pageConfig, DataType.Article, ItemAction.ViewItem);
+                } else if (pageConfig.blog) {
+                    buildForPage(result, pageConfig, DataType.Blog, ItemAction.ViewItem);
+                } else if (pageConfig.tag) {
+                    buildForPage(result, pageConfig, DataType.Tag, ItemAction.ViewItem);
+                } else if (pageConfig.order) {
+                    buildForPage(result, pageConfig, DataType.Order, ItemAction.Purchase);
+                } else if (pageConfig.category) {
+                    buildForPage(result, pageConfig, DataType.Category, ItemAction.ViewCategory);
+                } else if (Object.keys(pageConfig).length == 2 && pageConfig.runFunction) {
+                    return pageConfig.runFunction(result.data);
+                }
+                if (!result.data) return result;
+                if (!result.error) {
+                    if (pageConfig.addToCart) {
+                        handleAddToCartConfig(result, pageConfig.addToCart, pageConfig.quantity, pageConfig.sku);
+                    }
+                    if (pageConfig.runFunction) {
+                        pageConfig.runFunction(result.data);
+                    }
+                }
+            }
+        });
+        try {
+            if (result.errorConfig) result.errorConfig = JSON.stringify(result.errorConfig || {});
+        } catch (e) {
+            delete result.errorConfig;
+        }
+
+        return result;
+    }
+
+    function buildForPage(result, pageConfig, dataType, defaultAction) {
+        var data = itemConfigHandlers[dataType](pageConfig[dataType], dataType);
+        if (!data) {
+            result.error = "Invalid " + dataType;
+            result.errorConfig = pageConfig;
+            return;
+        }
+        if (dataType != "order") {
+            if (!data._id) {
+                result.error = "Invalid " + dataType + " missing _id";
+                result.errorConfig = pageConfig;
+            }
+            truncateTranslatedItem(data);
+        }
+        if (pageConfig.productCategory && !result.error &&
+            data.type == Evergage.ItemType.Product) {
+                handleProductCategoryConfig(data, pageConfig.productCategory);
+        }
+        if (typeof pageConfig.transform == "function") {
+            data = pageConfig.transform(data);
+        }
+        if (pageConfig.productCategory && !result.error &&
+            data.type == Evergage.ItemType.Category) {
+                handleProductCategoryConfig(data, pageConfig.productCategory);
+        }
+        result.data = data;
+        result.itemAction = pageConfig.itemAction || defaultAction;
+    }
+
+    function sendException(error, config) {
+        if (Evergage.sendException) {
+            Evergage.sendException(new Error(error + ": " + config), "Site-wide JavaScript");
+        }
+    }
+
+    function detectTranslate() {
+        // These checks can't trigger cross origin error
+        var googleTranslate = ajq("script[src*='//translate.googleusercontent.com']").length > 0;
+        var html = ajq("html");
+        var chromeTranslate = html.hasClass("translated-ltr") || html.hasClass("translated-rtl");
+        if (googleTranslate || chromeTranslate) {
+            if (evergageLog.shouldLog("DEBUG")) console.log("page is translated");
+            return true;
+        }
+
+        try {
+            var bingTranslate = ajq(window.parent.document).find("script[src*='//www.microsofttranslator.com']").length > 0;
+            var worldLingoTranslate = ajq(window.parent.document).find("frame[src*='//www.worldlingo.com']").length > 0;
+            if (bingTranslate || worldLingoTranslate) {
+                if (evergageLog.shouldLog("DEBUG")) console.log("page is translated");
+                return true;
+            } else {
+                if (evergageLog.shouldLog("DEBUG")) console.log("page is not translated");
+                return false;
+            }
+        } catch (e) {
+            // These checks can cause cross origin error
+            if (evergageLog.shouldLog("DEBUG")) console.log("exception caught, assuming page is untranslated " + e);
+            return false;
+        }
+    }
+
+    function truncateTranslatedItem(item) {
+        if (that.settings.truncateTranslated && detectTranslate()) {
+            ajq.each(item, function(key) {
+                if (!DO_NOT_TRUNCATE[key]) {
+                    delete item[key];
+                }
+            });
+        }
+    }
+
+    function init() {
+        Evergage.sendPageLoadEventWhenTrue(function(isLastTimeThrough) {
+            if (that.settings.pageLoadWhenTrue(isLastTimeThrough)) {
+                run();
+                return true;
+            } else {
+                return false;
+            }
+        }, that.settings.pageLoadWhenTrueTimeout);
+    }
+
+    function run(configs) {
+        if (!that.settings.runOnTranslatedPage && detectTranslate()) {
+            return;
+        }
+        var result = build.bind(Evergage.CatMap)(configs);
+        if (result && result.error) {
+            sendException(result.error, result.errorConfig);
+            return;
+        }
+        if (result && result.itemAction && result.data) {
+            if (result.itemAction === ItemAction.ViewItem && result.data.sku != null) {
+                result.data.isProduct = true;
+                Evergage[result.itemAction](result.data, null, {id: result.data.sku});
+            } else {
+                Evergage[result.itemAction](result.data);
+            }
+        }
+    }
+
+    function runSpecificConfig(config) {
+        var configs = [config];
+        run(configs);
+    }
+
+    var publicApi = {
+        setConfigs: setConfigs,
+        pushPage: pushPage,
+        updateSettings: updateSettings,
+        getArticleContent: getArticleContent,
+        _getValue: getValue,
+        _runAsFunction: runAsFunction,
+        _runSpecificConfig: runSpecificConfig,
+        build: build,
+        init: init,
+        _callbacks: {
+            buildCategoryId: buildCategoryId,
+            buildCategory: buildCategory,
+            buildLineItemArrayWithLength: buildLineItemArrayWithLength,
+            buildOrder: buildOrder,
+            buildOrderLineItems: buildOrderLineItems,
+            buildItem: buildItem,
+            buildTags: buildTags,
+            getValueFromWindow: getValueFromWindow
+        }
+    };
+    ajq.extend(this, publicApi);
+
+}
+if (window.Evergage) {
+    Evergage.CatMap = Evergage.CatMap || new EvergageCatMap();
+    Evergage.CatMap.setConfigs([]);
+}
+
+Evergage.CatMap.updateSettings({
+    pageLoadWhenTrue: function() {
+        if (ajq("body.checkout-cart-index").length>0){//cart page
+            if (Evergage.CatMap._callbacks.getValueFromWindow("window.cartDetails.items")) {
+              return true;
+            }else{
+              return false;
+            }
+        }
+        if (window.location.href.indexOf("success") > -1 && window.location.href.indexOf("checkout") > -1){//purchase page
+            if (Evergage.CatMap._callbacks.getValueFromWindow("window.sidecar.transactions.items")) {
+              return true;
+            }else{
+              return false;
+            }
+        }
+        return true;
+    },
+    pageLoadWhenTrueTimeout: 10000
+});
+
+Evergage.CatMap.pushPage({
+    isMatch: function() {
+        if (ajq(".catalog-product-view").length > 0) {
+            return true;
+        }
+    },
+    "product": {
+        "_id": {
+            "selector": ".yotpo.yotpo-main-widget",
+            "attribute": "data-product-id"
+        },
+        "name": "itemProp",
+        "alternateId": "lastPathComponentWithoutExtension",
+        "description": "itemProp",
+        "url": "canonical",
+        "imageUrl": {
+            "selector": ".yotpo-main-widget",
+            "attribute": "data-image-url"
+        },
+        "price": "itemProp",
+        "inventoryCount": function(){
+                var placeholderUrl = "https://www.shoestation.com/static/version1548684781/frontend/Codazon/fastest_ellyana/en_US/Magento_Catalog/images/product/placeholder/small_image.jpg";
+                var imageUrl = ajq(".yotpo-main-widget").attr("data-image-url");
+                return imageUrl === placeholderUrl ? 0 : 1;
+        },
+        "tags": {
+            "Brand": function() {
+                var brand = ajq("#product-attribute-specs-table [data-th='Brand']").text();
+
+                if (brand && brand.length > 0) {
+                    return ajq.trim(brand);
+                }
+            },
+            "Gender": function() {//Looks Good but verify in the catalog once this is live, sort by Gender
+
+                var desc = Evergage.util.getMetaContent("description").replace("'", "");
+                var gender = null;
+
+                if (desc) {
+
+                    tokens = desc.split(" ");
+
+                    if (ajq.inArray("WOMENS", tokens) >= 0) {
+                        gender = "WOMEN";
+                    } else if (ajq.inArray("MENS", tokens) >= 0) {
+                        gender = "MEN";
+                    } else if (ajq.inArray("KIDS", tokens) >= 0 || ajq.inArray("CHILDRENS", tokens) >= 0) {
+                        gender = "KIDS";
+                    } else if (ajq.inArray("ADULT", tokens) >= 0) {
+                        gender = "ADULT";
+                    } else if (ajq.inArray("BOYS", tokens) >= 0) {
+                        gender = "BOYS";
+                    } else if (ajq.inArray("GIRLS", tokens) >= 0) {
+                        gender = "GIRLS";
+                    }
+                }
+                return gender;
+            }
+        }
+    },
+    "addToCart": "#product-addtocart-button",
+    "quantity": ".qty-input input[name=qty]",
+    productCategory: true //We stored the category ID on the category page
+});
+
+Evergage.CatMap.pushPage({
+    isMatch: function() {
+        if (ajq("title").text().toLowerCase().indexOf("404 not found") >= 0 && ajq(".page-title h1").text().includes("Whoops, our bad")) {
+            var alternateId = Evergage.util.getLastPathComponentWithoutExtension(window.location.pathname).toUpperCase();
+            var outOfStockProduct = {
+                type:           Evergage.ItemType.Product,
+                alternateId:    alternateId
+            };
+            Evergage.trackAction("View Item Out Of Stock", { ".item": window.JSON.stringify(outOfStockProduct) });
+        }
+    }
+});
+
+function initCampaignOosTracking() {
+    var config = {
+        errorPageHasPDPUrl: true,
+        isErrorPage: ajq("title").text().toLowerCase().indexOf("404 not found") >= 0,
+        checkReferrer: true,
+        customSelector: "",
+        idFromHref: function(href) {
+            return;
+        }
+    };
+
+    var clickedProduct = ajq.jStorage.get("evergage|oosClick");
+    ajq.jStorage.deleteKey("evergage|oosClick");
+    if (clickedProduct &&
+        config.isErrorPage &&
+        (!config.errorPageHasPDPUrl || clickedProduct.url === window.location.href) &&
+        (!config.checkReferrer || clickedProduct.ref === document.referrer)) {
+            var product = {
+                type: Evergage.ItemType.Product,
+                _id: clickedProduct._id,
+                inventoryCount: 0
+            };
+            Evergage.viewItemDetail(product);
+    }
+
+    var boundMessages = [];
+    var selector = config.customSelector || "[data-evg-item-id]";
+    var clickHandler = function() {
+        var clickedProduct = {
+            _id: ajq(this).closest("[data-evg-item-id]").attr("data-evg-item-id") || config.idFromHref(ajq(this).attr("href")),
+            url: ajq(this).find("a").attr("href"),
+            ref: window.location.href
+        };
+        if (clickedProduct._id) {
+            ajq.jStorage.set("evergage|oosClick",clickedProduct,{TTL: 10000});
+        }
+    };
+
+    Evergage.addExperienceListener(function(experienceId, statType, message) {
+        if (statType === "i") {
+            var messages = ajq(".evergage-tooltip");
+            for (var i = 0; i < messages.length; i++) {
+                if (ajq.inArray(messages.eq(i).attr("id"), boundMessages) >= 0) {
+                    continue;
+                }
+                messages.eq(i).find(selector).on("click", clickHandler);
+                boundMessages.push(messages.eq(i).attr("id"));
+            }
+        }
+    });
+}
+
+initCampaignOosTracking();
+
+Evergage.CatMap.pushPage({
+    "isMatch": function() {
+        if (ajq(".catalog-category-view").length > 0 && ajq(".breadcrumbs a").length > 0) {
+            return true;
+        }
+    },
+    "category": {
+        "_id": function () {
+            var catID = ajq(".breadcrumbs .items li:last").attr("class");
+            return Evergage.util.extractFirstGroup(/\D*(\d+)/,catID);//we could add category before the capturing clause, but it should be fine without
+        },
+        "description": "meta",
+        "url": "canonical",
+        "name": function(){
+            return ajq(".page-title .base").text();
+        }
+    },
+    productCategory: {
+        selector: ".category-products" //selector of the container of the products
+    },
+    transform: function(item) {
+        var categoryList = ajq(".breadcrumbs .items li");
+        if (categoryList.length > 1) {
+            var lowestCat = Evergage.util.extractFirstGroup(/\D*(\d+)/, ajq(".breadcrumbs .items li:last").attr("class"));
+            var parentCat = "";
+            if(ajq(ajq(".breadcrumbs .items li")[ajq(".breadcrumbs .items li").length - 2]).attr("class").indexOf("home") == -1){//Don't set parentId for top level categories
+                var parentCat = Evergage.util.extractFirstGroup(/\D*(\d+)/, ajq(categoryList[categoryList.length - 2]).attr("class"));
+            }
+            if (lowestCat === item._id && parentCat.length > 0) {
+                item.parentId = parentCat;
+            }
+        }
+
+        return item;
+    }
+});
+
+Evergage.CatMap.pushPage({
+    "isMatch": "body.checkout-cart-index",
+    "itemAction": "viewCart",
+    "order": {
+        "orderId": "none",
+        "ids": function(){
+            if(window.cartDetails.items) {
+                return window.cartDetails.items.map( function(val,i) {
+                    return val.product_id;
+                });
+            }
+        },
+        "prices":  function(){
+            if(window.cartDetails.items) {
+                return window.cartDetails.items.map( function(val,i) {
+                    if (parseFloat(val.product_price_value) === 0) return .0001;
+                    return val.product_price_value;
+                });
+            }
+        },
+        "quantities": function(){
+            if(window.cartDetails.items) {
+                return window.cartDetails.items.map( function(val,i) {
+                    return val.qty;
+                });
+            }
+        }
+    }
+});
+
+Evergage.CatMap.pushPage(
+    {
+        "isMatch": function() {
+            if (Evergage.CatMap._callbacks.getValueFromWindow("window.sidecar.transactions")) {
+                return true;
+            }
+            return false;
+        },
+        "order": {
+            "orderId": {
+                "object": "window.sidecar.transactions.data.order_id"
+            },
+            "ids": function(){
+                if(window.sidecar.transactions.items) {
+                    return window.sidecar.transactions.items.map( function(val,i) {
+                        return val.product_id;
+                    });
+                }
+            },
+            "prices":  function(){
+                if(window.sidecar.transactions.items) {
+                    return window.sidecar.transactions.items.map( function(val,i) {
+                        if (parseFloat(val.unit_price) === 0) return .0001;
+                        return val.unit_price;
+                    });
+                }
+            },
+            "quantities": function(){
+                if(window.sidecar.transactions.items) {
+                    return window.sidecar.transactions.items.map( function(val,i) {
+                        return val.quantity;
+                    });
+                }
+            }
+    }
+});
+
+Evergage.CatMap.init();
